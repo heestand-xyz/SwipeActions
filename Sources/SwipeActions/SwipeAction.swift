@@ -1,6 +1,10 @@
 import SwiftUI
 
-public struct SwipeAction {
+public struct SwipeAction: Identifiable {
+    
+    public var id: String {
+        text
+    }
     
     let text: String
     let icon: Image?
@@ -15,9 +19,12 @@ public struct SwipeAction {
     }
     let style: Style
     
-    public init(text: String, icon: Image? = nil, style: Style, action: () -> ()) {
+    let call: () -> ()
+    
+    public init(text: String, icon: Image? = nil, style: Style, _ call: @escaping () -> ()) {
         self.text = text
         self.icon = icon
         self.style = style
+        self.call = call
     }
 }
