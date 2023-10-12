@@ -6,11 +6,11 @@ struct SwipeActions<Content: View>: View {
     
     static var dragResetAbsoluteFraction: CGFloat { macOS ? 0.75 : 0.25 }
     static var dragActionAbsoluteFraction: CGFloat { macOS ? 0.75 : 0.25 }
-    #if os(macOS)
+#if os(macOS)
     static var scrollMultiplier: CGFloat { 0.1 }
-    #else
+#else
     static var dragActionRelativeFraction: CGFloat { 0.5 }
-    #endif
+#endif
 
     let style: SwipeActionsStyle
     let leadingActions: [SwipeAction]
@@ -111,9 +111,9 @@ struct SwipeActions<Content: View>: View {
     
     @State var size: CGSize = .one
     
-    #if os(macOS)
+#if os(macOS)
     @State var scrollTranslation: CGFloat = 0.0
-    #endif
+#endif
     
     var body: some View {
         ZStack {
@@ -123,52 +123,40 @@ struct SwipeActions<Content: View>: View {
                 actionsBody(side: side)
                     .layoutPriority(-1)
             }
+#if DEBUG
             Text(viewState.rawValue)
                 .padding(5)
                 .background {
                     RoundedRectangle(cornerRadius: 5)
                         .colorInvert()
+                        .opacity(0.5)
                 }
-                .offset(y: 20)
+#endif
         }
         .animation(.easeOut(duration: 0.25),
                    value: viewState.isActionable)
         .readGeometry(size: $size)
 #if os(macOS)
-        .background {
-            MVInteractView(interacted: { _ in
-                gestureEnd()
-                scrollTranslation = 0.0
-            }, scrolling: { offset in
-                if !drag.isActive {
-                    gestureStart()
-                }
-                scrollTranslation += offset.x * Self.scrollMultiplier
-                gestureUpdate(translation: scrollTranslation,
-                              location: 0.0)
-            })
-        }
+        .background { interaction }
 #else
         .gesture(gesture)
 #endif
-        .onChange(of: drag.translation) { newTranslation in
-            if side != .leading, newTranslation > 0.0 {
-                side = .leading
-            } else if side != .trailing, newTranslation < 0.0 {
-                side = .trailing
-            }
-        }
     }
     
     private func actionsBody(side: Side) -> some View {
+        
         Group {
+        
             switch side {
             case .leading:
+            
                 HStack(spacing: 0.0) {
                     leadingActionsBody
                     Spacer(minLength: 0.0)
                 }
+                
             case .trailing:
+               
                 HStack(spacing: 0.0) {
                     Spacer(minLength: 0.0)
                     trailingActionsBody
@@ -180,9 +168,13 @@ struct SwipeActions<Content: View>: View {
     }
     
     private var leadingActionsBody: some View {
+        
         HStack(spacing: viewState.isActionable ? 0.0 : leadingSpacing) {
+        
             ForEach(leadingActions) { action in
+            
                 let isPrimary: Bool = leadingActions.first == action
+                
                 button(action: action, side: .leading)
                     .frame(width: viewState.isActionable && isPrimary ? actionsLength : nil)
             }
@@ -191,9 +183,13 @@ struct SwipeActions<Content: View>: View {
     }
     
     private var trailingActionsBody: some View {
+        
         HStack(spacing: viewState.isActionable ? 0.0 : trailingSpacing) {
+        
             ForEach(trailingActions) { action in
+            
                 let isPrimary: Bool = trailingActions.last == action
+                
                 button(action: action, side: .trailing)
                     .frame(width: viewState.isActionable && isPrimary ? actionsLength : nil)
             }
@@ -202,14 +198,22 @@ struct SwipeActions<Content: View>: View {
     }
     
     private func button(action: SwipeAction, side: Side) -> some View {
+        
         Button(action: action.call) {
+        
             ZStack {
+            
                 action.style.backgroundColor
+                
                 Group {
-                    if let icon: Image = action.icon {
-                        icon
-                    } else {
-                        Text(action.text)
+                    switch action.content {
+                    case .text(let string):
+                        Text(string)
+                    case .icon(let image):
+                        image
+                    case .label(let string, let image):
+                        Label(title: { Text(string) },
+                              icon: { image })
                     }
                 }
                 .fixedSize()
@@ -223,7 +227,21 @@ struct SwipeActions<Content: View>: View {
         .buttonStyle(.plain)
     }
     
-    #if !os(macOS)
+#if os(macOS)
+    private var interaction: some View {
+        MVInteractView(interacted: { _ in
+            gestureEnd()
+            scrollTranslation = 0.0
+        }, scrolling: { offset in
+            if !drag.isActive {
+                gestureStart()
+            }
+            scrollTranslation += offset.x * Self.scrollMultiplier
+            gestureUpdate(translation: scrollTranslation,
+                          location: 0.0)
+        })
+    }
+#else
     private var gesture: some Gesture {
         DragGesture()
             .onChanged { value in
@@ -237,7 +255,7 @@ struct SwipeActions<Content: View>: View {
                 gestureEnd()
             }
     }
-    #endif
+#endif
     
     private func gestureStart() {
         drag.isActive = true
@@ -249,8 +267,15 @@ struct SwipeActions<Content: View>: View {
     }
 
     private func gestureUpdate(translation: CGFloat, location: CGFloat) {
+        
         drag.translation = translation
         drag.location = location
+        
+        if side != .leading, translation > 0.0 {
+            side = .leading
+        } else if side != .trailing, translation < 0.0 {
+            side = .trailing
+        }
         
         var draggingAbsoluteAction: Bool {
             guard let side: Side else { return false }
@@ -263,11 +288,11 @@ struct SwipeActions<Content: View>: View {
         }
         
         var draggingRelativeAction: Bool {
-            #if os(macOS)
+#if os(macOS)
             return true
-            #else
+#else
             return length > (size.width * Self.dragActionRelativeFraction)
-            #endif
+#endif
         }
         
         var draggingAction: Bool {
@@ -327,11 +352,13 @@ fileprivate func mock(named name: String) -> some View {
         VStack(spacing: 1.0) {
             mock(named: "First")
                 .swipeActions(trailing: [
-                    SwipeAction(text: "Remove", style: .init(backgroundColor: .red)) {}
+                    SwipeAction(.label("Remove", Image(systemName: "trash")),
+                                style: .init(backgroundColor: .red)) {}
                 ])
             mock(named: "Second")
                 .swipeActions(leading: [
-                    SwipeAction(text: "Add", style: .init(backgroundColor: .green)) {}
+                    SwipeAction(.icon(Image(systemName: "plus")),
+                                style: .init(backgroundColor: .green)) {}
                 ])
             mock(named: "Third")
                 .swipeActions(style: SwipeActionsStyle(
@@ -339,10 +366,13 @@ fileprivate func mock(named name: String) -> some View {
                     padding: CGSize(width: 5, height: 5),
                     cornerRadius: 5
                 ), leading: [
-                    SwipeAction(text: "Add", style: .init(backgroundColor: .green)) {},
-                    SwipeAction(text: "Move", style: .init(backgroundColor: .blue)) {}
+                    SwipeAction(.text("Add"), 
+                                style: .init(backgroundColor: .green)) {},
+                    SwipeAction(.text("Move"), 
+                                style: .init(backgroundColor: .blue)) {}
                 ], trailing: [
-                    SwipeAction(text: "Remove", style: .init(backgroundColor: .red)) {}
+                    SwipeAction(.text("Remove"), 
+                                style: .init(backgroundColor: .red)) {}
                 ])
         }
     }

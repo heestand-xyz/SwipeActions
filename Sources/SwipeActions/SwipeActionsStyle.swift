@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreGraphics
 
 public struct SwipeActionsStyle {
     public var spacing: CGFloat = 0.0

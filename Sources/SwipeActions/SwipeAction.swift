@@ -2,12 +2,14 @@ import SwiftUI
 
 public struct SwipeAction: Identifiable, Equatable {
     
-    public var id: String {
-        text
-    }
+    public let id = UUID()
     
-    let text: String
-    let icon: Image?
+    public enum Content {
+        case text(String)
+        case icon(Image)
+        case label(String, Image)
+    }
+    let content: Content
     
     public struct Style {
         let foregroundColor: Color
@@ -21,9 +23,8 @@ public struct SwipeAction: Identifiable, Equatable {
     
     let call: () -> ()
     
-    public init(text: String, icon: Image? = nil, style: Style, _ call: @escaping () -> ()) {
-        self.text = text
-        self.icon = icon
+    public init(_ content: Content, style: Style, _ call: @escaping () -> ()) {
+        self.content = content
         self.style = style
         self.call = call
     }
