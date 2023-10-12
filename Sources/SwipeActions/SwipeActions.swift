@@ -4,9 +4,13 @@ import CoreGraphicsExtensions
 
 struct SwipeActions<Content: View>: View {
     
-    static var dragResetAbsoluteLength: CGFloat { 100 }
-    static var dragActionAbsoluteLength: CGFloat { 100 }
+    static var dragResetAbsoluteFraction: CGFloat { macOS ? 0.75 : 0.25 }
+    static var dragActionAbsoluteFraction: CGFloat { macOS ? 0.75 : 0.25 }
+    #if os(macOS)
+    static var scrollMultiplier: CGFloat { 0.1 }
+    #else
     static var dragActionRelativeFraction: CGFloat { 0.5 }
+    #endif
 
     let style: SwipeActionsStyle
     let leadingActions: [SwipeAction]
@@ -101,23 +105,52 @@ struct SwipeActions<Content: View>: View {
         totalLeadingSpacing / CGFloat(trailingActions.count) / 2
     }
     
+    private var actionsLength: CGFloat {
+        (viewState.isActionable ? size.width : length) - paddingWidth * 2
+    }
+    
     @State var size: CGSize = .one
+    
+    #if os(macOS)
+    @State var scrollTranslation: CGFloat = 0.0
+    #endif
     
     var body: some View {
         ZStack {
             content()
                 .offset(x: actionOffset)
-                .animation(.easeOut(duration: 0.2),
-                           value: viewState.isActionable)
             if let side: Side {
                 actionsBody(side: side)
                     .layoutPriority(-1)
             }
             Text(viewState.rawValue)
-                .opacity(0.25)
+                .padding(5)
+                .background {
+                    RoundedRectangle(cornerRadius: 5)
+                        .colorInvert()
+                }
+                .offset(y: 20)
         }
+        .animation(.easeOut(duration: 0.25),
+                   value: viewState.isActionable)
         .readGeometry(size: $size)
+#if os(macOS)
+        .background {
+            MVInteractView(interacted: { _ in
+                gestureEnd()
+                scrollTranslation = 0.0
+            }, scrolling: { offset in
+                if !drag.isActive {
+                    gestureStart()
+                }
+                scrollTranslation += offset.x * Self.scrollMultiplier
+                gestureUpdate(translation: scrollTranslation,
+                              location: 0.0)
+            })
+        }
+#else
         .gesture(gesture)
+#endif
         .onChange(of: drag.translation) { newTranslation in
             if side != .leading, newTranslation > 0.0 {
                 side = .leading
@@ -147,21 +180,25 @@ struct SwipeActions<Content: View>: View {
     }
     
     private var leadingActionsBody: some View {
-        HStack(spacing: leadingSpacing) {
+        HStack(spacing: viewState.isActionable ? 0.0 : leadingSpacing) {
             ForEach(leadingActions) { action in
+                let isPrimary: Bool = leadingActions.first == action
                 button(action: action, side: .leading)
+                    .frame(width: viewState.isActionable && isPrimary ? actionsLength : nil)
             }
         }
-        .frame(width: length - paddingWidth * 2)
+        .frame(width: actionsLength)
     }
     
     private var trailingActionsBody: some View {
-        HStack(spacing: trailingSpacing) {
+        HStack(spacing: viewState.isActionable ? 0.0 : trailingSpacing) {
             ForEach(trailingActions) { action in
+                let isPrimary: Bool = trailingActions.last == action
                 button(action: action, side: .trailing)
+                    .frame(width: viewState.isActionable && isPrimary ? actionsLength : nil)
             }
         }
-        .frame(width: length - paddingWidth * 2)
+        .frame(width: actionsLength)
     }
     
     private func button(action: SwipeAction, side: Side) -> some View {
@@ -183,66 +220,83 @@ struct SwipeActions<Content: View>: View {
             }
         }
         .clipShape(.rect(cornerRadius: style.cornerRadius))
+        .buttonStyle(.plain)
     }
     
+    #if !os(macOS)
     private var gesture: some Gesture {
         DragGesture()
             .onChanged { value in
                 if !drag.isActive {
-                    drag.isActive = true
-                    viewState = .dragging
-                    if let endTimer: Timer {
-                        endTimer.invalidate()
-                        self.endTimer = nil
-                    }
+                    gestureStart()
                 }
-                drag.translation = value.translation.width
-                drag.location = value.location.x
-                
-                
-                
-                var draggingAbsoluteAction: Bool {
-                    guard let side: Side else { return false }
-                    switch side {
-                    case .leading:
-                        return drag.location > (size.width - Self.dragActionAbsoluteLength)
-                    case .trailing:
-                        return drag.location < Self.dragActionAbsoluteLength
-                    }
-                }
-                
-                var draggingRelativeAction: Bool {
-                    length > (size.width * Self.dragActionRelativeFraction)
-                }
-                
-                var draggingAction: Bool {
-                    draggingRelativeAction && draggingAbsoluteAction
-                }
-                
-                viewState = draggingAction ? .potentialAction : .dragging
+                gestureUpdate(translation: value.translation.width,
+                              location: value.location.x)
             }
-            .onEnded { value in
-                
-                let isAtStart: Bool = abs(value.translation.width) < Self.dragResetAbsoluteLength
-                
-                if viewState == .potentialAction {
-                    viewState = .action
-                } else if isAtStart {
-                    viewState = .inactive
-                } else {
-                    viewState = .options
-                }
-                
-                withAnimation(.easeInOut(duration: 0.5)) {
-                    drag.translation = 0.0
-                }
-                
-                endTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
-                    drag.reset()
-                    side = nil
-                    endTimer = nil
-                }
+            .onEnded { _ in
+                gestureEnd()
             }
+    }
+    #endif
+    
+    private func gestureStart() {
+        drag.isActive = true
+        viewState = .dragging
+        if let endTimer: Timer {
+            endTimer.invalidate()
+            self.endTimer = nil
+        }
+    }
+
+    private func gestureUpdate(translation: CGFloat, location: CGFloat) {
+        drag.translation = translation
+        drag.location = location
+        
+        var draggingAbsoluteAction: Bool {
+            guard let side: Side else { return false }
+            switch side {
+            case .leading:
+                return location > (size.width - size.width * Self.dragActionAbsoluteFraction)
+            case .trailing:
+                return location < size.width * Self.dragActionAbsoluteFraction
+            }
+        }
+        
+        var draggingRelativeAction: Bool {
+            #if os(macOS)
+            return true
+            #else
+            return length > (size.width * Self.dragActionRelativeFraction)
+            #endif
+        }
+        
+        var draggingAction: Bool {
+            draggingRelativeAction && draggingAbsoluteAction
+        }
+        
+        viewState = draggingAction ? .potentialAction : .dragging
+    }
+
+    private func gestureEnd() {
+        let isAtStart: Bool = abs(drag.translation) < size.width * Self.dragResetAbsoluteFraction
+        
+        if viewState == .potentialAction {
+            viewState = .action
+        } else if isAtStart {
+            viewState = .inactive
+        } else {
+            viewState = .options
+        }
+        
+        withAnimation(.easeInOut(duration: 0.5)) {
+            drag.translation = 0.0
+        }
+        
+        endTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
+            drag.reset()
+            side = nil
+            endTimer = nil
+        }
     }
 }
 

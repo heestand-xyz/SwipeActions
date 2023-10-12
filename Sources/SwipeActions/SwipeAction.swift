@@ -1,6 +1,6 @@
 import SwiftUI
 
-public struct SwipeAction: Identifiable {
+public struct SwipeAction: Identifiable, Equatable {
     
     public var id: String {
         text
@@ -26,5 +26,9 @@ public struct SwipeAction: Identifiable {
         self.icon = icon
         self.style = style
         self.call = call
+    }
+    
+    public static func == (lhs: SwipeAction, rhs: SwipeAction) -> Bool {
+        lhs.id == rhs.id
     }
 }
