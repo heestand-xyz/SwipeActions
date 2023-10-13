@@ -34,33 +34,33 @@ struct SwipeActions<Content: View>: View {
     let trailingActions: [SwipeAction]
     let content: () -> Content
     
-    private enum ViewState: String {
+    private enum ViewState: Equatable {
+        
         case inactive
-        case dragging
         case options
-        case potentialAction
+        case dragging(translation: CGFloat, location: CGFloat)
+        case draggingAction
         case action
+        
+        var isDragging: Bool {
+            switch self {
+            case .dragging, .draggingAction:
+                true
+            default:
+                false
+            }
+        }
+        
         var isActionable: Bool {
-            [.potentialAction, .action].contains(self)
+            switch self {
+            case .draggingAction, .action:
+                true
+            default:
+                false
+            }
         }
     }
     @State private var viewState: ViewState = .inactive
-    
-    @State private var buttonWidths: [UUID: CGFloat] = [:]
-    
-    @State private var endTimer: Timer?
-    
-    struct Drag {
-        var isActive: Bool = false
-        var translation: CGFloat = 0.0
-        var location: CGFloat = 0.0
-        mutating func reset() {
-            isActive = false
-            translation = 0.0
-            location = 0.0
-        }
-    }
-    @State private var drag = Drag()
     
     enum Side {
         
@@ -79,9 +79,9 @@ struct SwipeActions<Content: View>: View {
         var multiplier: CGFloat {
             switch self {
             case .leading:
-                return -1.0
-            case .trailing:
                 return 1.0
+            case .trailing:
+                return -1.0
             }
         }
         
@@ -94,12 +94,14 @@ struct SwipeActions<Content: View>: View {
             }
         }
     }
-    @State var side: Side?
+    @State private var side: Side?
     
-    @State var size: CGSize = .one
+    @State private var buttonWidths: [UUID: CGFloat] = [:]
+    
+    @State private var size: CGSize = .one
     
 #if os(macOS)
-    @State var scrollTranslation: CGFloat = 0.0
+    @State private var scrollTranslation: CGFloat = 0.0
 #endif
     
     // MARK: Body
@@ -107,23 +109,12 @@ struct SwipeActions<Content: View>: View {
     var body: some View {
         ZStack {
             content()
-                .offset(x: actionOffset)
+                .offset(x: length * (side?.multiplier ?? 0.0))
             if let side: Side {
                 actionsBody(side: side)
                     .layoutPriority(-1)
             }
-#if DEBUG
-            Text(viewState.rawValue)
-                .padding(5)
-                .background {
-                    RoundedRectangle(cornerRadius: 5)
-                        .colorInvert()
-                        .opacity(0.5)
-                }
-#endif
         }
-        .animation(.easeOut(duration: 0.25),
-                   value: viewState.isActionable)
         .readGeometry(size: $size)
 #if os(macOS)
         .background { interaction }
@@ -170,13 +161,18 @@ extension SwipeActions {
     private func button(action: SwipeAction, side: Side) -> some View {
         
         Button {
-            self.side = nil
-            action.call()
+            willAction()
+            Task {
+                await action.call()
+                didAction()
+            }
         } label: {
             
             ZStack {
                 
                 action.style.backgroundColor
+                
+                let showLoadingIndicator: Bool = action.style.showLoadingIndicator && viewState == .action
                 
                 Group {
                     switch action.content {
@@ -189,6 +185,14 @@ extension SwipeActions {
                               icon: { image })
                     }
                 }
+                .opacity(showLoadingIndicator ? 0.0 : 1.0)
+                .overlay {
+                    if showLoadingIndicator {
+                        ProgressView()
+                            .scaleEffect(macOS ? 0.5 : 1.0)
+                    }
+                }
+                .animation(.easeInOut, value: showLoadingIndicator)
                 .fixedSize()
                 .padding(.horizontal)
                 .readGeometry(size: Binding(get: { .zero }, set: { newSize in
@@ -208,41 +212,58 @@ extension SwipeActions {
 
 extension SwipeActions {
     
-    private var offset: CGFloat {
-        guard let side: Side else { return 0.0 }
-        var offset: CGFloat = drag.translation
-        switch side {
-        case .leading:
-            if leadingActions.isEmpty { return 0.0 }
-            offset = max(0.0, offset)
-        case .trailing:
-            if trailingActions.isEmpty { return 0.0 }
-            offset = min(0.0, offset)
-        }
-        return offset
-    }
-    
-    private var actionOffset: CGFloat {
-        if viewState.isActionable {
-            return size.width * -(side?.multiplier ?? 0.0)
-        } else if viewState == .options {
-            guard let side: Side else { return 0.0 }
-            return actionsOuterLength(side: side) * -side.multiplier
-        }
-        return offset
-    }
-    
     private var length: CGFloat {
-        abs(offset)
+        guard let side: Side else { return 0.0 }
+        switch viewState {
+        case .inactive:
+            return 0.0
+        case .options:
+            return actionsOuterLength(side: side)
+        case .dragging(let translation, _):
+            switch side {
+            case .leading:
+                if leadingActions.isEmpty { return 0.0 }
+            case .trailing:
+                if trailingActions.isEmpty { return 0.0 }
+            }
+            return translation * side.multiplier
+        case .draggingAction, .action:
+            return size.width
+        }
+    }
+    
+    private var minLength: CGFloat? {
+        guard let side: Side else { return 0.0 }
+        switch viewState {
+        case .inactive:
+            return 0.0
+        case .options:
+            return nil
+        case .dragging(let translation, _):
+            switch side {
+            case .leading:
+                if leadingActions.isEmpty { return 0.0 }
+            case .trailing:
+                if trailingActions.isEmpty { return 0.0 }
+            }
+            return translation * side.multiplier
+        case .draggingAction, .action:
+            return nil
+        }
     }
     
     private var paddingWidth: CGFloat {
-        let padding: CGFloat = min(style.padding.width * 4, length)
-        return padding / 4
+        guard let minLength: CGFloat else {
+            return style.padding.width * 2
+        }
+        return min(style.padding.width * 4, minLength) / 4
     }
     
     private func spacing(side: Side) -> CGFloat {
-        let spacing: CGFloat = min(style.spacing * CGFloat(actions(side: side).count) * 2, length)
+        guard let minLength: CGFloat else {
+            return style.spacing * CGFloat(actions(side: side).count)
+        }
+        let spacing: CGFloat = min(style.spacing * CGFloat(actions(side: side).count) * 2, minLength)
         return spacing / CGFloat(leadingActions.count) / 2
     }
     
@@ -286,7 +307,7 @@ extension SwipeActions {
     }
     
     private func actionsInnerLength(side: Side) -> CGFloat {
-        actionsOuterLength(side: side) - paddingWidth * 2.0
+        max(0.0, actionsOuterLength(side: side) - paddingWidth * 2.0)
     }
 }
 
@@ -300,19 +321,19 @@ extension SwipeActions {
             gestureEnd()
             scrollTranslation = 0.0
         }, scrolling: { offset in
-            if !drag.isActive {
+            if !viewState.isDragging {
                 gestureStart()
             }
             scrollTranslation += offset.x * Self.scrollMultiplier
             gestureUpdate(translation: scrollTranslation,
-                          location: 0.0)
+                          location: ...)
         })
     }
 #else
     private var gesture: some Gesture {
         DragGesture()
             .onChanged { value in
-                if !drag.isActive {
+                if !viewState.isDragging {
                     gestureStart()
                 }
                 gestureUpdate(translation: value.translation.width,
@@ -323,26 +344,15 @@ extension SwipeActions {
             }
     }
 #endif
-    
-    private func gestureStart() {
-        drag.isActive = true
-        viewState = .dragging
-        if let endTimer: Timer {
-            endTimer.invalidate()
-            self.endTimer = nil
-        }
-    }
+}
 
+// MARK: Gesture Actions
+
+extension SwipeActions {
+    
+    private func gestureStart() {}
+    
     private func gestureUpdate(translation: CGFloat, location: CGFloat) {
-        
-        drag.translation = translation
-        drag.location = location
-        
-        if side != .leading, translation > 0.0 {
-            side = .leading
-        } else if side != .trailing, translation < 0.0 {
-            side = .trailing
-        }
         
         var draggingAbsoluteAction: Bool {
             guard let side: Side else { return false }
@@ -366,31 +376,67 @@ extension SwipeActions {
             draggingRelativeAction && draggingAbsoluteAction
         }
         
-        viewState = draggingAction ? .potentialAction : .dragging
-    }
-
-    private func gestureEnd() {
-        let isAtStart: Bool = abs(drag.translation) < size.width * Self.dragResetAbsoluteFraction
-        
-        if viewState == .potentialAction {
-            viewState = .action
-        } else if isAtStart {
-            viewState = .inactive
-        } else {
-            viewState = .options
-        }
-        
-        withAnimation(.easeInOut(duration: 0.5)) {
-            drag.translation = 0.0
-        }
-        
-        endTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
-            drag.reset()
-            if viewState != .options {
-                side = nil
+        if draggingAction {
+            if viewState != .draggingAction {
+                withAnimation {
+                    viewState = .draggingAction
+                }
             }
-            endTimer = nil
+        } else {
+            // TODO: Animate on first call
+            viewState = .dragging(translation: translation, location: location)
         }
+        
+        if side != .leading, translation > 0.0 {
+            side = .leading
+        } else if side != .trailing, translation < 0.0 {
+            side = .trailing
+        }
+    }
+    
+    private func gestureEnd() {
+        
+        var canReset: Bool = false
+        if case .dragging(let translation, _) = viewState {
+            canReset = abs(translation) < size.width * Self.dragResetAbsoluteFraction
+        }
+        
+        if viewState == .draggingAction {
+            viewState = .action
+        } else if canReset {
+            withAnimation {
+                reset()
+            }
+        } else {
+            withAnimation {
+                viewState = .options
+            }
+        }
+    }
+}
+
+// MARK: Button Actions
+
+extension SwipeActions {
+    
+    private func willAction() {
+        viewState = .action
+    }
+    
+    private func didAction() {
+        withAnimation {
+            reset()
+        }
+    }
+}
+
+// MARK: Reset
+
+extension SwipeActions {
+    
+    func reset() {
+        side = nil
+        viewState = .inactive
     }
 }
 

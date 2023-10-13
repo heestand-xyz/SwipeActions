@@ -14,14 +14,18 @@ public struct SwipeAction: Identifiable, Equatable {
     public struct Style {
         let foregroundColor: Color
         let backgroundColor: Color
-        public init(foregroundColor: Color = .white, backgroundColor: Color) {
+        let showLoadingIndicator: Bool
+        public init(foregroundColor: Color = .white,
+                    backgroundColor: Color,
+                    showLoadingIndicator: Bool = false) {
             self.foregroundColor = foregroundColor
             self.backgroundColor = backgroundColor
+            self.showLoadingIndicator = showLoadingIndicator
         }
     }
     let style: Style
     
-    let call: () -> ()
+    let call: () async -> ()
     
     public init(_ content: Content, style: Style, _ call: @escaping () -> ()) {
         self.content = content
