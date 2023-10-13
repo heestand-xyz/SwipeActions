@@ -2,6 +2,23 @@ import SwiftUI
 import MultiViews
 import CoreGraphicsExtensions
 
+// MARK: Modifier
+
+extension View {
+    
+    public func swipeActions(style: SwipeActionsStyle = .init(),
+                             leading leadingActions: [SwipeAction] = [],
+                             trailing trailingActions: [SwipeAction] = []) -> some View {
+        SwipeActions(style: style,
+                     leadingActions: leadingActions,
+                     trailingActions: trailingActions) {
+            self
+        }
+    }
+}
+
+// MARK: View
+
 struct SwipeActions<Content: View>: View {
     
     static var dragResetAbsoluteFraction: CGFloat { macOS ? 0.75 : 0.25 }
@@ -11,7 +28,7 @@ struct SwipeActions<Content: View>: View {
 #else
     static var dragActionRelativeFraction: CGFloat { 0.5 }
 #endif
-
+    
     let style: SwipeActionsStyle
     let leadingActions: [SwipeAction]
     let trailingActions: [SwipeAction]
@@ -29,11 +46,10 @@ struct SwipeActions<Content: View>: View {
     }
     @State private var viewState: ViewState = .inactive
     
-    // TODO: Use
     @State private var buttonWidths: [UUID: CGFloat] = [:]
     
     @State private var endTimer: Timer?
-
+    
     struct Drag {
         var isActive: Bool = false
         var translation: CGFloat = 0.0
@@ -47,8 +63,19 @@ struct SwipeActions<Content: View>: View {
     @State private var drag = Drag()
     
     enum Side {
+        
         case leading
         case trailing
+        
+        var opposite: Side {
+            switch self {
+            case .leading:
+                return .trailing
+            case .trailing:
+                return .leading
+            }
+        }
+        
         var multiplier: CGFloat {
             switch self {
             case .leading:
@@ -57,66 +84,25 @@ struct SwipeActions<Content: View>: View {
                 return 1.0
             }
         }
+        
+        var alignment: Alignment {
+            switch self {
+            case .leading:
+                return .leading
+            case .trailing:
+                return .trailing
+            }
+        }
     }
     @State var side: Side?
-    
-    private var offset: CGFloat {
-        guard let side: Side else { return 0.0 }
-        var offset: CGFloat = drag.translation
-        switch side {
-        case .leading:
-            if leadingActions.isEmpty { return 0.0 }
-            offset = max(0.0, offset)
-        case .trailing:
-            if trailingActions.isEmpty { return 0.0 }
-            offset = min(0.0, offset)
-        }
-        return offset
-    }
-    
-    private var actionOffset: CGFloat {
-        viewState.isActionable ? (
-            size.width * -(side?.multiplier ?? 0.0)
-        ) : offset
-    }
-    
-    private var length: CGFloat {
-        abs(offset)
-    }
-    
-    private var totalPaddingWidth: CGFloat {
-        min(style.padding.width * 4, length)
-    }
-    
-    private var paddingWidth: CGFloat {
-        totalPaddingWidth / 4
-    }
-    
-    private var totalLeadingSpacing: CGFloat {
-        min(style.spacing * CGFloat(leadingActions.count) * 2, length)
-    }
-    
-    private var leadingSpacing: CGFloat {
-        totalLeadingSpacing / CGFloat(leadingActions.count) / 2
-    }
-    
-    private var totalTrailingSpacing: CGFloat {
-        min(style.spacing * CGFloat(trailingActions.count) * 2, length)
-    }
-    
-    private var trailingSpacing: CGFloat {
-        totalLeadingSpacing / CGFloat(trailingActions.count) / 2
-    }
-    
-    private var actionsLength: CGFloat {
-        (viewState.isActionable ? size.width : length) - paddingWidth * 2
-    }
     
     @State var size: CGSize = .one
     
 #if os(macOS)
     @State var scrollTranslation: CGFloat = 0.0
 #endif
+    
+    // MARK: Body
     
     var body: some View {
         ZStack {
@@ -145,73 +131,51 @@ struct SwipeActions<Content: View>: View {
         .gesture(gesture)
 #endif
     }
+}
+
+// MARK: - Bodies
+
+extension SwipeActions {
     
     private func actionsBody(side: Side) -> some View {
         
-        Group {
-        
-            switch side {
-            case .leading:
+        HStack(spacing: viewState.isActionable ? 0.0 : spacing(side: side)) {
             
-                HStack(spacing: 0.0) {
-                    leadingActionsBody
-                    Spacer(minLength: 0.0)
-                }
+            ForEach(actions(side: side)) { action in
                 
-            case .trailing:
-               
-                HStack(spacing: 0.0) {
-                    Spacer(minLength: 0.0)
-                    trailingActionsBody
-                }
+                let isPrimary: Bool = primaryAction(side: side) == action
+                
+                button(action: action, side: .leading)
+                    .frame(width: {
+                        if viewState.isActionable && isPrimary {
+                            return actionsInnerLength(side: side)
+                        } else if viewState == .options {
+                            return buttonWidths[action.id]
+                        }
+                        return nil
+                    }())
             }
         }
         .padding(.horizontal, paddingWidth)
         .padding(.vertical, style.padding.height)
+        .frame(width: viewState == .options ? nil : actionsInnerLength(side: side))
+        .frame(maxWidth: .infinity, alignment: side.alignment)
     }
-    
-    private var leadingActionsBody: some View {
-        
-        HStack(spacing: viewState.isActionable ? 0.0 : leadingSpacing) {
-        
-            ForEach(leadingActions) { action in
-            
-                let isPrimary: Bool = leadingActions.first == action
-                
-                button(action: action, side: .leading)
-                    .frame(width: viewState.isActionable && isPrimary ? actionsLength : nil)
-            }
-        }
-        .frame(width: viewState == .options ? nil : actionsLength)
-    }
-    
-    private var trailingActionsBody: some View {
-        
-        HStack(spacing: 0.0) {
-            
-            Spacer(minLength: 0.0)
-            
-            HStack(spacing: viewState.isActionable ? 0.0 : trailingSpacing) {
-                
-                ForEach(trailingActions) { action in
-                    
-                    let isPrimary: Bool = trailingActions.last == action
-                    
-                    button(action: action, side: .trailing)
-                        .frame(width: viewState.isActionable && isPrimary ? actionsLength : nil)
-                }
-            }
-            .frame(width: viewState == .options ? nil : actionsLength)
-            .layoutPriority(-1)
-        }
-    }
+}
+
+// MARK: - Buttons
+
+extension SwipeActions {
     
     private func button(action: SwipeAction, side: Side) -> some View {
         
-        Button(action: action.call) {
-        
-            ZStack {
+        Button {
+            self.side = nil
+            action.call()
+        } label: {
             
+            ZStack {
+                
                 action.style.backgroundColor
                 
                 Group {
@@ -238,6 +202,97 @@ struct SwipeActions<Content: View>: View {
         .clipShape(.rect(cornerRadius: style.cornerRadius))
         .buttonStyle(.plain)
     }
+}
+
+// MARK: Lengths
+
+extension SwipeActions {
+    
+    private var offset: CGFloat {
+        guard let side: Side else { return 0.0 }
+        var offset: CGFloat = drag.translation
+        switch side {
+        case .leading:
+            if leadingActions.isEmpty { return 0.0 }
+            offset = max(0.0, offset)
+        case .trailing:
+            if trailingActions.isEmpty { return 0.0 }
+            offset = min(0.0, offset)
+        }
+        return offset
+    }
+    
+    private var actionOffset: CGFloat {
+        if viewState.isActionable {
+            return size.width * -(side?.multiplier ?? 0.0)
+        } else if viewState == .options {
+            guard let side: Side else { return 0.0 }
+            return actionsOuterLength(side: side) * -side.multiplier
+        }
+        return offset
+    }
+    
+    private var length: CGFloat {
+        abs(offset)
+    }
+    
+    private var paddingWidth: CGFloat {
+        let padding: CGFloat = min(style.padding.width * 4, length)
+        return padding / 4
+    }
+    
+    private func spacing(side: Side) -> CGFloat {
+        let spacing: CGFloat = min(style.spacing * CGFloat(actions(side: side).count) * 2, length)
+        return spacing / CGFloat(leadingActions.count) / 2
+    }
+    
+    private func actions(side: Side) -> [SwipeAction] {
+        switch side {
+        case .leading:
+            return leadingActions
+        case .trailing:
+            return trailingActions
+        }
+    }
+    
+    private func primaryAction(side: Side) -> SwipeAction? {
+        switch side {
+        case .leading:
+            return leadingActions.first
+        case .trailing:
+            return trailingActions.last
+        }
+    }
+    
+    private func actionsOuterLength(side: Side) -> CGFloat {
+        if viewState.isActionable {
+          return size.width
+        } else if viewState == .options {
+            let actions: [SwipeAction] = actions(side: side)
+            if actions.isEmpty { return 0.0 }
+            return actions
+                .compactMap { action in
+                    buttonWidths[action.id]
+                }
+                .reduce(0.0, +)
+            + ( 0 ..< actions.count - 1 )
+                .map { _ in
+                    spacing(side: side)
+                }
+                .reduce(0.0, +)
+            + paddingWidth * 2.0
+        }
+        return length
+    }
+    
+    private func actionsInnerLength(side: Side) -> CGFloat {
+        actionsOuterLength(side: side) - paddingWidth * 2.0
+    }
+}
+
+// MARK: - Gestures
+
+extension SwipeActions {
     
 #if os(macOS)
     private var interaction: some View {
@@ -331,23 +386,15 @@ struct SwipeActions<Content: View>: View {
         
         endTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
             drag.reset()
-            side = nil
+            if viewState != .options {
+                side = nil
+            }
             endTimer = nil
         }
     }
 }
 
-extension View {
-    public func swipeActions(style: SwipeActionsStyle = .init(),
-                             leading leadingActions: [SwipeAction] = [],
-                             trailing trailingActions: [SwipeAction] = []) -> some View {
-        SwipeActions(style: style,
-                     leadingActions: leadingActions,
-                     trailingActions: trailingActions) {
-            self
-        }
-    }
-}
+// MARK: Mocks
 
 fileprivate func mock(named name: String) -> some View {
     Text(name)
@@ -358,6 +405,8 @@ fileprivate func mock(named name: String) -> some View {
                 .opacity(0.1)
         }
 }
+
+// MARK: Preview
 
 #Preview {
     ScrollView {
