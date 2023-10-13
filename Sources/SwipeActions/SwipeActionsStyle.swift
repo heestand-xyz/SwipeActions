@@ -9,12 +9,27 @@ import Foundation
 import CoreGraphics
 
 public struct SwipeActionsStyle {
-    public var spacing: CGFloat = 0.0
-    public var padding: CGSize = .zero
-    public var cornerRadius: CGFloat = 0.0
-    public init(spacing: CGFloat = 0.0, padding: CGSize = .zero, cornerRadius: CGFloat = 0.0) {
+    public var spacing: CGFloat
+    public var padding: CGSize
+    public enum Shape {
+        case rectangle
+        case roundedRectangle(cornerRadius: CGFloat)
+        case capsule
+        func cornerRadius(height: CGFloat) -> CGFloat {
+            switch self {
+            case .rectangle:
+                return 0.0
+            case .roundedRectangle(let cornerRadius):
+                return cornerRadius
+            case .capsule:
+                return height / 2
+            }
+        }
+    }
+    public var shape: Shape
+    public init(spacing: CGFloat = 0.0, padding: CGSize = .zero, shape: Shape = .rectangle) {
         self.spacing = spacing
         self.padding = padding
-        self.cornerRadius = cornerRadius
+        self.shape = shape
     }
 }

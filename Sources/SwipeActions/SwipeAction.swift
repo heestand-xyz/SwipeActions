@@ -17,7 +17,7 @@ public struct SwipeAction: Identifiable, Equatable {
         let showLoadingIndicator: Bool
         public init(foregroundColor: Color = .white,
                     backgroundColor: Color,
-                    showLoadingIndicator: Bool = false) {
+                    showLoadingIndicator: Bool = true) {
             self.foregroundColor = foregroundColor
             self.backgroundColor = backgroundColor
             self.showLoadingIndicator = showLoadingIndicator
@@ -27,7 +27,7 @@ public struct SwipeAction: Identifiable, Equatable {
     
     let call: () async -> ()
     
-    public init(_ content: Content, style: Style, _ call: @escaping () -> ()) {
+    public init(_ content: Content, style: Style, _ call: @escaping () async -> ()) {
         self.content = content
         self.style = style
         self.call = call
