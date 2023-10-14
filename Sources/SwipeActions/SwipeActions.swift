@@ -20,13 +20,11 @@ extension View {
 // MARK: View
 
 struct SwipeActions<Content: View>: View {
-    
-    static var dragResetAbsoluteFraction: CGFloat { macOS ? 0.75 : 0.25 }
-    static var dragActionAbsoluteFraction: CGFloat { macOS ? 0.75 : 0.25 }
-#if os(macOS)
-    static var scrollMultiplier: CGFloat { 0.1 }
-#else
-    static var dragActionRelativeFraction: CGFloat { 0.5 }
+
+    var resetLocation: CGFloat { macOS ? 50 : 100 }
+#if !os(macOS)
+    var primaryActionLocation: CGFloat { size.width * 0.75 }
+    var primaryActionTranslation: CGFloat { size.width * 0.5 }
 #endif
     
     let style: SwipeActionsStyle
@@ -124,6 +122,7 @@ struct SwipeActions<Content: View>: View {
     
 #if os(macOS)
     @State private var scrollTranslation: CGFloat = 0.0
+    @State private var scrollTimer: Timer?
 #endif
     
     // MARK: Body
@@ -132,8 +131,10 @@ struct SwipeActions<Content: View>: View {
         ZStack {
             actionsBody(side: .leading)
                 .opacity(side == .leading ? 1.0 : 0.0)
+                .layoutPriority(-1)
             actionsBody(side: .trailing)
                 .opacity(side == .trailing ? 1.0 : 0.0)
+                .layoutPriority(-1)
             content()
                 .offset(x: length * (side?.multiplier ?? 0.0))
         }
@@ -230,13 +231,17 @@ extension SwipeActions {
                     if showLoadingIndicator {
                         ProgressView()
                             .scaleEffect(macOS ? 0.5 : 1.0)
+#if os(macOS)
+                            .colorInvert()
+#else
                             .tint(action.style.foregroundColor)
+#endif
                     }
                 }
             }
+            .clipShape(.rect(cornerRadius: style.shape.cornerRadius(height: size.height)))
         }
-        .clipShape(.rect(cornerRadius: style.shape.cornerRadius(height: size.height)))
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
     }
 }
 
@@ -252,7 +257,14 @@ extension SwipeActions {
         case .trailing:
             if trailingActions.isEmpty { return 0.0 }
         }
-        return offset * side.multiplier
+        let length = min(offset * side.multiplier, size.width)
+        #if os(macOS)
+        let maxLength: CGFloat = buttonWidths(side: side)
+        if length > maxLength {
+            return maxLength + (length - maxLength) * 0.25
+        }
+        #endif
+        return length
     }
     
     private var length: CGFloat {
@@ -317,19 +329,23 @@ extension SwipeActions {
         }
     }
     
+    private func buttonWidths(side: Side) -> CGFloat {
+        let actions: [SwipeAction] = actions(side: side)
+        if actions.isEmpty { return 0.0 }
+        return actions
+            .compactMap { action in
+                buttonWidths[action.id]
+            }
+            .reduce(0.0, +)
+        + style.spacing * CGFloat(actions.count - 1)
+        + style.padding.width * 2
+    }
+    
     private func actionsOuterLength(side: Side) -> CGFloat {
         if viewState.isPrimaryAction {
           return size.width
         } else if viewState == .options || (viewState.action != nil && !viewState.isPrimaryAction) {
-            let actions: [SwipeAction] = actions(side: side)
-            if actions.isEmpty { return 0.0 }
-            return actions
-                .compactMap { action in
-                    buttonWidths[action.id]
-                }
-                .reduce(0.0, +)
-            + style.spacing * CGFloat(actions.count - 1)
-            + style.padding.width * 2
+            return buttonWidths(side: side)
         }
         return length
     }
@@ -350,16 +366,20 @@ extension SwipeActions {
     
 #if os(macOS)
     private var interaction: some View {
-        MVInteractView(interacted: { _ in
-            gestureEnd()
-            scrollTranslation = 0.0
-        }, scrolling: { offset in
+        MVInteractView(interacted: { _ in }, scrolling: { offset in
+            scrollTimer?.invalidate()
             if !viewState.isDragging {
+                if case .action = viewState { return }
                 gestureStart()
             }
-            scrollTranslation += offset.x * Self.scrollMultiplier
+            scrollTranslation += offset.x
             gestureUpdate(translation: scrollTranslation,
-                          location: ...)
+                          location: nil)
+            scrollTimer = .scheduledTimer(withTimeInterval: 0.25, repeats: false, block: { _ in
+                gestureEnd()
+                scrollTranslation = 0.0
+                scrollTimer = nil
+            })
         })
     }
 #else
@@ -367,6 +387,7 @@ extension SwipeActions {
         DragGesture()
             .onChanged { value in
                 if !viewState.isDragging {
+                    if case .action = viewState { return }
                     gestureStart()
                 }
                 gestureUpdate(translation: value.translation.width,
@@ -387,31 +408,35 @@ extension SwipeActions {
         startOffset = offset
     }
     
-    private func gestureUpdate(translation: CGFloat, location: CGFloat) {
+    private func gestureUpdate(translation: CGFloat,
+                               location: CGFloat?) {
         
-        var draggingAbsoluteAction: Bool {
+#if !os(macOS)
+        var draggingAbsolutePrimaryAction: Bool {
             guard let side: Side else { return false }
+            guard let location: CGFloat else { return false }
             switch side {
             case .leading:
-                return location > (size.width - size.width * Self.dragActionAbsoluteFraction)
+                return location > primaryActionLocation
             case .trailing:
-                return location < size.width * Self.dragActionAbsoluteFraction
+                return location < size.width - primaryActionLocation
             }
         }
         
-        var draggingRelativeAction: Bool {
+        var draggingRelativePrimaryAction: Bool {
+            return length > primaryActionTranslation
+        }
+#endif
+        
+        var draggingPrimaryAction: Bool {
 #if os(macOS)
-            return true
+            return false
 #else
-            return length > (size.width * Self.dragActionRelativeFraction)
+            return draggingRelativePrimaryAction && draggingAbsolutePrimaryAction
 #endif
         }
         
-        var draggingAction: Bool {
-            draggingRelativeAction && draggingAbsoluteAction
-        }
-        
-        if draggingAction {
+        if draggingPrimaryAction {
             
             if case .draggingPrimaryAction = viewState {} else {
                 
@@ -447,7 +472,7 @@ extension SwipeActions {
         
         var canReset: Bool = false
         if viewState == .dragging {
-            canReset = abs(offset) < size.width * Self.dragResetAbsoluteFraction
+            canReset = abs(offset) < resetLocation
         }
         
         if case .draggingPrimaryAction(let action) = viewState {
