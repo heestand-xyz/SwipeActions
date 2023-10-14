@@ -38,7 +38,7 @@ struct SwipeActions<Content: View>: View {
         
         case inactive
         case options
-        case dragging(translation: CGFloat, location: CGFloat)
+        case dragging
         case draggingPrimaryAction(SwipeAction)
         case action(SwipeAction, isPrimary: Bool)
         
@@ -72,7 +72,17 @@ struct SwipeActions<Content: View>: View {
             }
         }
     }
-    @State private var viewState: ViewState = .inactive
+    @State private var viewState: ViewState = .inactive {
+        didSet {
+            DispatchQueue.main.async {
+                lastViewState = viewState
+            }
+        }
+    }
+    @State private var lastViewState: ViewState = .inactive
+    
+    @State private var startOffset: CGFloat = 0.0
+    @State private var offset: CGFloat = 0.0
     
     enum Side {
         
@@ -120,22 +130,18 @@ struct SwipeActions<Content: View>: View {
     
     var body: some View {
         ZStack {
+            actionsBody(side: .leading)
+                .opacity(side == .leading ? 1.0 : 0.0)
+            actionsBody(side: .trailing)
+                .opacity(side == .trailing ? 1.0 : 0.0)
             content()
                 .offset(x: length * (side?.multiplier ?? 0.0))
-                .background {
-                    actionsBody(side: .leading)
-                        .opacity(side == .leading ? 1.0 : 0.0)
-                }
-                .background {
-                    actionsBody(side: .trailing)
-                        .opacity(side == .trailing ? 1.0 : 0.0)
-                }
         }
         .readGeometry(size: $size)
 #if os(macOS)
         .background { interaction }
 #else
-        .gesture(gesture)
+        .simultaneousGesture(gesture)
 #endif
     }
 }
@@ -162,7 +168,7 @@ extension SwipeActions {
                             }
                             return false
                         }() {
-                            return buttonWidths[action.id]
+                            return buttonWidths[action.id] ?? 0.0
                         }
                         return nil
                     }())
@@ -183,6 +189,7 @@ extension SwipeActions {
     private func button(action: SwipeAction, side: Side) -> some View {
         
         Button {
+            guard lastViewState == .options else { return }
             self.doAction(with: action)
         } label: {
             
@@ -237,6 +244,17 @@ extension SwipeActions {
 
 extension SwipeActions {
     
+    private var dragLength: CGFloat {
+        guard let side: Side else { return 0.0 }
+        switch side {
+        case .leading:
+            if leadingActions.isEmpty { return 0.0 }
+        case .trailing:
+            if trailingActions.isEmpty { return 0.0 }
+        }
+        return offset * side.multiplier
+    }
+    
     private var length: CGFloat {
         guard let side: Side else { return 0.0 }
         switch viewState {
@@ -244,14 +262,8 @@ extension SwipeActions {
             return 0.0
         case .options:
             return actionsOuterLength(side: side)
-        case .dragging(let translation, _):
-            switch side {
-            case .leading:
-                if leadingActions.isEmpty { return 0.0 }
-            case .trailing:
-                if trailingActions.isEmpty { return 0.0 }
-            }
-            return translation * side.multiplier
+        case .dragging:
+            return dragLength
         case .draggingPrimaryAction:
             return size.width
         case .action(_, let isPrimary):
@@ -260,20 +272,13 @@ extension SwipeActions {
     }
     
     private var minLength: CGFloat? {
-        guard let side: Side else { return 0.0 }
         switch viewState {
         case .inactive:
             return 0.0
         case .options:
             return nil
-        case .dragging(let translation, _):
-            switch side {
-            case .leading:
-                if leadingActions.isEmpty { return 0.0 }
-            case .trailing:
-                if trailingActions.isEmpty { return 0.0 }
-            }
-            return translation * side.multiplier
+        case .dragging:
+            return dragLength
         case .draggingPrimaryAction, .action:
             return nil
         }
@@ -332,6 +337,11 @@ extension SwipeActions {
     private func actionsInnerLength(side: Side) -> CGFloat {
         max(0.0, actionsOuterLength(side: side) - paddingWidth * 2.0)
     }
+    
+    private func buttonAverageWidth(side: Side) -> CGFloat {
+        let actionCount: Int = actions(side: side).count
+        return (length - style.spacing * CGFloat(actionCount - 1) - style.padding.width * 2) / CGFloat(actionCount)
+    }
 }
 
 // MARK: - Gestures
@@ -373,7 +383,9 @@ extension SwipeActions {
 
 extension SwipeActions {
     
-    private func gestureStart() {}
+    private func gestureStart() {
+        startOffset = offset
+    }
     
     private func gestureUpdate(translation: CGFloat, location: CGFloat) {
         
@@ -400,22 +412,33 @@ extension SwipeActions {
         }
         
         if draggingAction {
+            
             if case .draggingPrimaryAction = viewState {} else {
+                
                 if let side: Side,
                     let action: SwipeAction = primaryAction(side: side) {
+                    
                     withAnimation {
                         viewState = .draggingPrimaryAction(action)
                     }
                 }
             }
-        } else {
-            // TODO: Animate on first call
-            viewState = .dragging(translation: translation, location: location)
+            
+        } else if viewState != .dragging {
+            
+            if case .draggingPrimaryAction = viewState {
+                
+                // TODO: Animate to .dragging
+            }
+            
+            viewState = .dragging
         }
+
+        offset = startOffset + translation
         
-        if side != .leading, translation > 0.0 {
+        if side != .leading, offset > 0.0 {
             side = .leading
-        } else if side != .trailing, translation < 0.0 {
+        } else if side != .trailing, offset < 0.0 {
             side = .trailing
         }
     }
@@ -423,8 +446,8 @@ extension SwipeActions {
     private func gestureEnd() {
         
         var canReset: Bool = false
-        if case .dragging(let translation, _) = viewState {
-            canReset = abs(translation) < size.width * Self.dragResetAbsoluteFraction
+        if viewState == .dragging {
+            canReset = abs(offset) < size.width * Self.dragResetAbsoluteFraction
         }
         
         if case .draggingPrimaryAction(let action) = viewState {
@@ -434,8 +457,10 @@ extension SwipeActions {
                 reset()
             }
         } else {
+            guard let side: Side else { return }
             withAnimation {
                 viewState = .options
+                offset = actionsOuterLength(side: side) * side.multiplier
             }
         }
     }
@@ -477,6 +502,8 @@ extension SwipeActions {
     func reset() {
         side = nil
         viewState = .inactive
+        offset = 0.0
+        startOffset = 0.0
     }
 }
 
