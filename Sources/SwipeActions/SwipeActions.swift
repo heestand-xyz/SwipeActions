@@ -6,9 +6,9 @@ import CoreGraphicsExtensions
 
 extension View {
     
-    public func swipeActions(style: SwipeActionsStyle = .init(),
-                             leading leadingActions: [SwipeAction] = [],
-                             trailing trailingActions: [SwipeAction] = []) -> some View {
+    public func swipe(style: SwipeActionsStyle = .init(),
+                      leadingActions: [SwipeAction] = [],
+                      trailingActions: [SwipeAction] = []) -> some View {
         SwipeActions(style: style,
                      leadingActions: leadingActions,
                      trailingActions: trailingActions) {
@@ -550,7 +550,7 @@ fileprivate func mock(named name: String) -> some View {
     ScrollView {
         VStack(spacing: 1.0) {
             mock(named: "First")
-                .swipeActions(trailing: [
+                .swipe(trailingActions: [
                     SwipeAction(
                         .label("Remove", Image(systemName: "trash")),
                         style: .init(backgroundColor: .red)) {
@@ -558,7 +558,7 @@ fileprivate func mock(named name: String) -> some View {
                         }
                 ])
             mock(named: "Second")
-                .swipeActions(leading: [
+                .swipe(leadingActions: [
                     SwipeAction(
                         .icon(Image(systemName: "plus")),
                         style: .init(backgroundColor: .green)) {
@@ -566,11 +566,11 @@ fileprivate func mock(named name: String) -> some View {
                         }
                 ])
             mock(named: "Third")
-                .swipeActions(style: SwipeActionsStyle(
+                .swipe(style: SwipeActionsStyle(
                     spacing: 5,
                     padding: CGSize(width: 5, height: 5),
                     shape: .capsule
-                ), leading: [
+                ), leadingActions: [
                     SwipeAction(
                         .text("Add"),
                         style: .init(backgroundColor: .green)) {
@@ -581,7 +581,7 @@ fileprivate func mock(named name: String) -> some View {
                         style: .init(backgroundColor: .blue)) {
                             print("Move")
                         }
-                ], trailing: [
+                ], trailingActions: [
                     SwipeAction(
                         .text("Remove"),
                         style: .init(backgroundColor: .red)) {
