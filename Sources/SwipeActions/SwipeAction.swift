@@ -7,7 +7,7 @@ public struct SwipeAction: Identifiable, Equatable {
     public enum Content {
         case text(String)
         case icon(Image)
-        case label(String, Image)
+        case label(text: String, icon: Image)
     }
     let content: Content
     

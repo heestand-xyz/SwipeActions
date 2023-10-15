@@ -6,9 +6,11 @@ import CoreGraphicsExtensions
 
 extension View {
     
-    public func swipe(style: SwipeActionsStyle = .init(),
+    public func swipe(isEnabled: Bool,
+                      style: SwipeActionsStyle = .init(),
                       leadingActions: [SwipeAction] = [],
                       trailingActions: [SwipeAction] = []) -> some View {
+        // TODO: Use `isEnabled`
         SwipeActions(style: style,
                      leadingActions: leadingActions,
                      trailingActions: trailingActions) {
@@ -552,7 +554,7 @@ fileprivate func mock(named name: String) -> some View {
             mock(named: "First")
                 .swipe(trailingActions: [
                     SwipeAction(
-                        .label("Remove", Image(systemName: "trash")),
+                        .label(text: "Remove", icon: Image(systemName: "trash")),
                         style: .init(backgroundColor: .red)) {
                             print("Remove")
                         }
