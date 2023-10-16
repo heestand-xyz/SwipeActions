@@ -1,3 +1,3 @@
-# SwipeActions
+# Swipe Actions
 
-A description of this package.
+for iOS & macOS
