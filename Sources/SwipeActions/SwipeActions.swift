@@ -552,7 +552,8 @@ fileprivate func mock(named name: String) -> some View {
     ScrollView {
         VStack(spacing: 1.0) {
             mock(named: "First")
-                .swipe(trailingActions: [
+                .swipe(isEnabled: true,
+                       trailingActions: [
                     SwipeAction(
                         .label(text: "Remove", icon: Image(systemName: "trash")),
                         style: .init(backgroundColor: .red)) {
@@ -560,7 +561,8 @@ fileprivate func mock(named name: String) -> some View {
                         }
                 ])
             mock(named: "Second")
-                .swipe(leadingActions: [
+                .swipe(isEnabled: true,
+                       leadingActions: [
                     SwipeAction(
                         .icon(Image(systemName: "plus")),
                         style: .init(backgroundColor: .green)) {
@@ -568,7 +570,8 @@ fileprivate func mock(named name: String) -> some View {
                         }
                 ])
             mock(named: "Third")
-                .swipe(style: SwipeActionsStyle(
+                .swipe(isEnabled: true,
+                       style: SwipeActionsStyle(
                     spacing: 5,
                     padding: CGSize(width: 5, height: 5),
                     shape: .capsule
